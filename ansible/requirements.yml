@@ -1,0 +1,25 @@
+---
+- name: geerlingguy.docker
+  version: master
+  src: geerlingguy.docker
+
+- name: geerlingguy.java
+  version: master
+  src: geerlingguy.java
+
+- name: geerlingguy.glusterfs
+  version: master
+  src: geerlingguy.glusterfs
+
+- name: marvel-nccr.slurm
+  version: master
+  src: marvel-nccr.slurm
+
+- name: indigo-dc.slurm
+  version: master
+  src: indigo-dc.slurm
+
+- name: stouts.hostname
+  version: master
+  src: stouts.hostname
+

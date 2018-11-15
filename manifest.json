@@ -1,0 +1,24 @@
+{
+    "applicationName": "proteomicscloudworkflowsfromscratch",
+    "contactEmail": "walzer@ebi.ac.uk",
+    "about": "start from scratch building a on-demand system for proteomics workflow execution",
+    "version": "0.1",
+    "cloudProviders": [
+        {
+            "cloudProvider": "OSTACK",
+            "path": "ostack"
+        }
+    ],
+    "inputs": [
+        "instance_number",
+        "whop"
+    ],
+    "deploymentParameters": [
+        "disk_image_name",
+        "floating_ip_pool",
+        "network_name"
+    ],
+    "outputs": [
+        "external_ip"
+    ]
+}

@@ -1,0 +1,124 @@
+---
+- name: Warming up instances
+  gather_facts: no
+  hosts: cluster:gfs-cluster
+  tasks:
+  - name: Initial connection block
+    block:
+      - name: Wait 2 minutes, but only start checking after 30 seconds
+        wait_for_connection:
+          delay: 10
+          timeout: 20
+    rescue:
+      - name: Try to install python 2, when ansible is not able to connect
+        raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+
+- name: Set up docker 
+  hosts: cluster
+  become: yes
+  vars: {docker_edition: 'ce', docker_package: "docker-{{ docker_edition }}", docker_package_state: present}
+  roles:
+    - geerlingguy.docker
+
+- name: Set hostnames properly
+  hosts: cluster
+  become: yes
+  roles:
+    - stouts.hostname
+
+- name: Print ansible vars defined for IP and host names
+  hosts: localhost
+  tasks:
+  - name: Display all variables/facts known for a host
+    debug:
+    var: hostvars
+    verbosity: 4 
+  - name: Display all variables/facts known for a host
+    debug:
+    with_items:
+      - msg: "IP master {{ hostvars[groups['master'][0]]['public_ipv4'] }}"
+      - msg: "IP node 0 {{ hostvars[groups['node'][0]]['public_ipv4'] }}"
+      - msg: "IP node 1 {{ hostvars[groups['node'][1]]['public_ipv4'] }}"
+      - msg: "slurm_server_ip {{hostvars[groups['master'][0]]['ansible_default_ipv4']}}" 
+      - msg: "nodenames {{ groups['node']|map('extract', hostvars, 'ansible_hostname')| select('search','clustertest-node') | list  }}" 
+      - msg: "slurm_server_ip {{hostvars[groups['master'][0]] }}"
+      - msg: "{{ groups['node']|map('extract', hostvars, 'private_ipv4')|list }}"
+
+- name: more addres stuff in ansible debug
+  hosts: localhost
+  tasks:
+    - debug:
+        msg: "{{ hostvars[item].private_ipv4 }} {{item}}"
+      with_items: "{{ groups.all }}"
+
+- name: Complete /etc/hosts with IP address of all hosts
+  hosts: cluster
+  become: yes
+  tasks:
+    - lineinfile:
+        dest: /etc/hosts
+        regexp: '.*{{ item }}$'
+        line: "{{ hostvars[item].private_ipv4 }} {{item}}"
+        state: present
+      when: hostvars[item].private_ipv4 is defined
+      with_items: "{{ groups.all }}"
+
+- name: Set up SLURM masters
+  hosts: master
+  become: yes
+  roles:
+  - { role: 'indigo-dc.slurm', slurm_type_of_node: 'front', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_wn_nodenames: "{{ groups['node']|map('extract', hostvars, 'ansible_hostname')| select('search','clustertest-node') | list  }}", slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}", slurm_vnode_prefix: "clustertest-node-nf" }
+  # - { role: 'indigo-dc.slurm', slurm_type_of_node: 'front', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_wn_ips: "{{ groups['node']|map('extract', hostvars, 'private_ipv4')|list }}", slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}", slurm_vnode_prefix: "clustertest-node-nf" }
+
+  #maybe just host: cluster - would make slurm_wn_nodenames selection easier, too.
+- name: Set up SLURM nodes
+  hosts: node
+  become: yes
+  roles:
+  - { role: 'indigo-dc.slurm', slurm_type_of_node: 'wn', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}", slurm_vnode_prefix: "clustertest-node-nf" }
+
+# - name: Set up SLURM masters
+#   hosts: master
+#   become: yes
+#   user: "ubuntu"
+#   roles:
+#     - { role: 'grycap.slurm', slurm_type_of_node: 'front', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_wn_nodenames: "{{ groups['node']|map('extract', hostvars, 'ansible_hostname')|list }}", user: "ubuntu" }
+
+# - name: Set up SLURM nodes
+#   hosts: node
+#   become: yes
+#   user: "ubuntu"
+#   roles:
+#     - { role: 'grycap.slurm', slurm_type_of_node: 'wn', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", user: "ubuntu" }
+   
+- name: Install java
+  hosts: cluster
+  become: yes
+  roles:
+    - geerlingguy.java
+
+- name: Install nextflow
+  hosts: master
+  tasks:
+    - name: curl nextflow 
+      command: curl -s https://get.nextflow.io | bash 
+      register: nextflowcurloutput
+
+- name: Get GlusterFS 
+  hosts: gfs-cluster
+  become: yes
+  roles:
+    - geerlingguy.glusterfs
+
+- name: Change authorized public keys
+  gather_facts: no
+  hosts: cluster
+
+  tasks:
+  - name: Make sure the user key is authorized on the instance
+    authorized_key:
+      user: "{{lookup('env','ANSIBLE_REMOTE_USER')}}"
+      key: "{{lookup('env','ssh_key')}}"
+      exclusive: no
+      state: present
+
