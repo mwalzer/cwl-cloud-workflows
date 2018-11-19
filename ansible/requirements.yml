@@ -11,6 +11,10 @@
   version: master
   src: geerlingguy.glusterfs
 
+- name: geerlingguy.firewall
+  version: master
+  src: geerlingguy.firewall
+
 - name: marvel-nccr.slurm
   version: master
   src: marvel-nccr.slurm
