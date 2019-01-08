@@ -72,6 +72,7 @@ export ANSIBLE_HOST_KEY_CHECKING=False
 eval "$(ssh-agent -s)"
 ssh-add $PRIV_KEY_PATH
 
+# Launch Ansible playbook
 ansible-playbook -b --become-user=root \
     -i ${DPL}'/terraform.py'\
     ${APP}'/ansible/playbook.yml' \
@@ -83,9 +84,6 @@ ansible-playbook -b --become-user=root \
 export ANSIBLE_REMOTE_USER="${TF_VAR_remote_user:-ubuntu}"
 echo "export ANSIBLE_REMOTE_USER=${ANSIBLE_REMOTE_USER}"
 
-# Launch Ansible playbook
-echo -e "\n\t${CYAN}Launch Ansible playbook${NC}\n"
-ansible-playbook -b playbook.yml
 echo -e "PROTAL VARS"
 echo -e "${PORTAL_CALLBACK_SECRET}"
 echo -e "${PORTAL_BASE_URL}"

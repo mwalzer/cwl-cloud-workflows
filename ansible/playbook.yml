@@ -1,11 +1,11 @@
 ---
 - name: Warming up instances
   gather_facts: no
-  hosts: cluster:gfs-cluster
+  hosts: all
   tasks:
   - name: Initial connection block
     block:
-      - name: Wait 2 minutes, but only start checking after 30 seconds
+      - name: Wait 20 seconds, but only start checking after 10 seconds
         wait_for_connection:
           delay: 10
           timeout: 20
@@ -13,6 +13,11 @@
       - name: Try to install python 2, when ansible is not able to connect
         raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
 
+- name: Set type of playbook execution as fact
+  hosts: all
+  tasks:
+    - set_fact: ansible_purpose="{{ purpose | default("cluster") }}"  # call ansible with -e "purpose=image other_variable=foo"
+    
 - name: Set up docker 
   hosts: cluster
   become: yes
@@ -25,6 +30,14 @@
   become: yes
   roles:
     - geerlingguy.java
+
+- name: Install nextflow
+  become: yes
+  hosts: master
+  tasks:
+    - name: curl nextflow 
+      shell: "curl -s https://get.nextflow.io | bash"
+      register: nextflowcurloutput
 
 - name: Set hostnames properly
   hosts: cluster
@@ -47,25 +60,8 @@
 - name: Get GlusterFS necessities 
   hosts: cluster
   become: yes
-  vars:
-    firewall_allowed_tcp_ports:
-      - 22
-      # Gluster Daemon.
-      - 24007
-      - 24008
-      # for Gluster > 3.4+.
-      - 49152
-      - 49162
-      # Gluster inline NFS server.
-      - 38465
-      - 38466
-      # SlurmctldPort SlurmdPort SchedulerPort
-      - 6817
-      - 6818
-      - 7321
-    firewall_allowed_udp_ports:
-      - 24007
-      - 24008
+  vars: 
+    import_vars: ports.yml
   roles:
     - geerlingguy.glusterfs
     - geerlingguy.firewall
@@ -74,101 +70,42 @@
 
 - name: Configure GlusterFS
   hosts: cluster
-  become: yes
   vars:
-    gluster_mount_dir: "/mnt/gluster"
-    gluster_brick_dir: "/srv/gluster/brick"
-    gluster_brick_name: "gluster"
+    #import_vars: gluster_configuration.yml
+    gluster_mount_dir: "/mnt/gluster" 
+    gluster_brick_dir: "/srv/gluster/brick" 
+    gluster_brick_name: "gluster" 
   tasks:
-    - name: Ensure Gluster brick and mount directories exist.
-      file: "path={{ item }} state=directory mode=0775"
-      with_items:
-        - "{{ gluster_brick_dir }}"
-        - "{{ gluster_mount_dir }}"
-
-    - name: Configure Gluster volume.
-      gluster_volume:
-        state: present
-        #state: started
-        force: yes
-        name: "{{ gluster_brick_name }}"
-        brick: "{{ gluster_brick_dir }}"
-        #replicas: 1
-        cluster: "{{ groups.cluster | join(',') }}"
-        host: "{{ ansible_hostname }}"
-      run_once: true
-
-    - name: Ensure Gluster volume is mounted.
-      msg: "blabla {{ ansible_hostname }}"
-      mount:
-        name: "{{ gluster_mount_dir }}"
-        src: "{{ ansible_hostname }}:/{{ gluster_brick_name }}"
-        fstype: glusterfs
-        opts: "defaults,_netdev"
-        state: mounted
-
-# - name: Print ansible vars defined for IP and host names
-#   hosts: localhost
-#   tasks:
-#   - name: Display all variables/facts known for a host
-#     debug:
-#     var: hostvars
-#     verbosity: 4 
-#   - name: Display all variables/facts known for a host
-#     debug:
-#     with_items:
-#       - msg: "IP master {{ hostvars[groups['master'][0]]['public_ipv4'] }}"
-#       - msg: "IP node 0 {{ hostvars[groups['node'][0]]['public_ipv4'] }}"
-#       - msg: "IP node 1 {{ hostvars[groups['node'][1]]['public_ipv4'] }}"
-#       - msg: "slurm_server_ip {{hostvars[groups['master'][0]]['ansible_default_ipv4']}}" 
-#       - msg: "nodenames {{ groups['node']|map('extract', hostvars, 'ansible_hostname')| select('search','clustertest-node') | list  }}" 
-#       - msg: "slurm_server_ip {{hostvars[groups['master'][0]] }}"
-#       - msg: "{{ groups['node']|map('extract', hostvars, 'private_ipv4')|list }}"
-
-- name: more address stuff in ansible debug
-  hosts: localhost
-  tasks:
-    - debug:
-        msg: "{{ hostvars[item].private_ipv4 }} {{item}}"
-      with_items: "{{ groups.all }}"
-
+    - include: configure_gluster.yml
+      when: ansible_purpose == "cluster"
+  ignore_errors: yes
+  
 - name: Set up SLURM masters
   hosts: master
   become: yes
   roles:
-  - { role: 'indigo-dc.slurm', slurm_type_of_node: 'front', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_wn_nodenames: "{{ groups['node']|map('extract', hostvars, 'ansible_hostname')| select('search','clustertest-node') | list  }}", slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}", slurm_vnode_prefix: "clustertest-node-nf" }
-  # - { role: 'indigo-dc.slurm', slurm_type_of_node: 'front', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_wn_ips: "{{ groups['node']|map('extract', hostvars, 'private_ipv4')|list }}", slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}", slurm_vnode_prefix: "clustertest-node-nf" }
+  - role: 'indigo-dc.slurm'
+    vars:
+      slurm_type_of_node: 'front'
+      slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}"
+      slurm_wn_nodenames: "{{ groups['node'] | map('extract', hostvars, 'ansible_hostname') | select('search','clustertest-node') | list  }}"
+      slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}"
+      slurm_vnode_prefix: "clustertest-node-nf" 
+    when: ansible_purpose == "cluster"
 
-  #maybe just host: cluster - would make slurm_wn_nodenames selection easier, too.
 - name: Set up SLURM nodes
   hosts: no-floating
   become: yes
   roles:
-  - { role: 'indigo-dc.slurm', slurm_type_of_node: 'wn', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}", slurm_vnode_prefix: "clustertest-node-nf" }
+  - role: 'indigo-dc.slurm'
+    vars:
+      slurm_type_of_node: 'wn'
+      slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}"
+      slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}"
+      slurm_vnode_prefix: "clustertest-node-nf" 
+    when: ansible_purpose == "cluster"
 
 # https://wiki.fysik.dtu.dk/niflheim/Slurm_configuration
-
-# - name: Set up SLURM masters
-#   hosts: master
-#   become: yes
-#   user: "ubuntu"
-#   roles:
-#     - { role: 'grycap.slurm', slurm_type_of_node: 'front', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", slurm_wn_nodenames: "{{ groups['node']|map('extract', hostvars, 'ansible_hostname')|list }}", user: "ubuntu" }
-
-# - name: Set up SLURM nodes
-#   hosts: node
-#   become: yes
-#   user: "ubuntu"
-#   roles:
-#     - { role: 'grycap.slurm', slurm_type_of_node: 'wn', slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}", user: "ubuntu" }
-   
-- name: Install nextflow
-  become: yes
-  hosts: master
-  tasks:
-    - name: curl nextflow 
-      shell: "curl -s https://get.nextflow.io | bash"
-      register: nextflowcurloutput
 
 # - name: Change authorized public keys
 #   gather_facts: no
@@ -181,4 +118,4 @@
 #       key: "{{lookup('env','ssh_key')}}"
 #       exclusive: no
 #       state: present
-
+...
