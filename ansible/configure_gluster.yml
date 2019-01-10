@@ -1,6 +1,6 @@
 ---
 - name: Ensure Gluster brick and mount directories exist.
-  file: "path={{ item }} state=directory mode=0777"  # danger zone, but okay for throwaway deployments
+  file: "path={{ item }} state=directory mode=0777"  # danger zone, but okay for throwaway deployments | was 0775
   with_items:
   - "{{ gluster_brick_dir }}"
   - "{{ gluster_mount_dir }}"
@@ -23,4 +23,27 @@
     fstype: glusterfs
     opts: "defaults,_netdev"
     state: mounted
+
+# - name: Print ansible vars defined for IP and host names
+#   hosts: localhost
+#   tasks:
+#   - name: Display all variables/facts known for a host
+#     debug:
+#     var: hostvars
+#     verbosity: 4 
+#   - name: Display all variables/facts known for a host
+#     debug:
+#     with_items:
+#       - msg: "IP master {{ hostvars[groups['master'][0]]['public_ipv4'] }}"
+#       - msg: "IP node 0 {{ hostvars[groups['node'][0]]['public_ipv4'] }}"
+#       - msg: "IP node 1 {{ hostvars[groups['node'][1]]['public_ipv4'] }}"
+#       - msg: "slurm_server_ip {{hostvars[groups['master'][0]]['ansible_default_ipv4']}}" 
+#       - msg: "nodenames {{ groups['node']|map('extract', hostvars, 'ansible_hostname')| select('search','clustertest-node') | list  }}" 
+#       - msg: "slurm_server_ip {{hostvars[groups['master'][0]] }}"
+#       - msg: "{{ groups['node']|map('extract', hostvars, 'private_ipv4')|list }}"
+
+- name: more address stuff in ansible debug
+  debug:
+    msg: "{{ hostvars[item].private_ipv4 }} {{item}}"
+  with_items: "{{ groups.all }}"
 ...

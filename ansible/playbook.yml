@@ -61,7 +61,25 @@
   hosts: cluster
   become: yes
   vars: 
-    import_vars: ports.yml
+    #import_vars: ports.yml
+    firewall_allowed_tcp_ports:
+      - 22
+      # Gluster Daemon.
+      - 24007
+      - 24008
+      # for Gluster > 3.4+.
+      - 49152
+      - 49162
+      # Gluster inline NFS server.
+      - 38465
+      - 38466
+      # SlurmctldPort SlurmdPort SchedulerPort
+      - 6817
+      - 6818
+      - 7321
+    firewall_allowed_udp_ports:
+      - 24007
+      - 24008
   roles:
     - geerlingguy.glusterfs
     - geerlingguy.firewall
@@ -70,6 +88,7 @@
 
 - name: Configure GlusterFS
   hosts: cluster
+  become: yes
   vars:
     #import_vars: gluster_configuration.yml
     gluster_mount_dir: "/mnt/gluster" 

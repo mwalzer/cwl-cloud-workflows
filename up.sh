@@ -73,6 +73,7 @@ eval "$(ssh-agent -s)"
 ssh-add $PRIV_KEY_PATH
 
 # Launch Ansible playbook
+echo -e "\n\t${CYAN}Launch Ansible playbook${NC}\n"
 ansible-playbook -b --become-user=root \
     -i ${DPL}'/terraform.py'\
     ${APP}'/ansible/playbook.yml' \
