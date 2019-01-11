@@ -16,7 +16,9 @@
 - name: Set type of playbook execution as fact
   hosts: all
   tasks:
-    - set_fact: ansible_purpose="{{ purpose | default("cluster") }}"  # call ansible with -e "purpose=image other_variable=foo"
+    - set_fact: 
+        ansible_purpose: "{{ purpose | default('cluster') }}"  # call ansible with -e "purpose=image other_variable=foo"
+        clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}"
     
 - name: Set up docker 
   hosts: cluster
@@ -73,12 +75,11 @@
   become: yes
   vars_files:
     - gluster_configuration.yml
-
   tasks:
     - include: configure_gluster.yml
       when: ansible_purpose == "cluster"
   ignore_errors: yes
-  
+    
 - name: Set up SLURM masters
   hosts: master
   become: yes
@@ -87,9 +88,10 @@
     vars:
       slurm_type_of_node: 'front'
       slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}"
-      slurm_wn_nodenames: "{{ groups['node'] | map('extract', hostvars, 'ansible_hostname') | select('search','clustertest-node') | list  }}"
+      clusternamenode: "{{ clustername }}-node"
+      slurm_wn_nodenames: "{{ groups['node'] | map('extract', hostvars, 'ansible_hostname') | select('search', clusternamenode) | list  }}"
       slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}"
-      slurm_vnode_prefix: "clustertest-node-nf" 
+      slurm_vnode_prefix: "{{ clustername }}-node-nf'"
     when: ansible_purpose == "cluster"
 
 - name: Set up SLURM nodes
@@ -101,7 +103,7 @@
       slurm_type_of_node: 'wn'
       slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}"
       slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}"
-      slurm_vnode_prefix: "clustertest-node-nf" 
+      slurm_vnode_prefix: "{{ clustername }}-node-nf" 
     when: ansible_purpose == "cluster"
 
 # https://wiki.fysik.dtu.dk/niflheim/Slurm_configuration
