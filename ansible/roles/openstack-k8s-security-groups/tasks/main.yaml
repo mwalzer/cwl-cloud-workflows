@@ -1,0 +1,12 @@
+- name: Create/Delete master security group
+  tags: bootstrap
+  os_security_group:
+    name: "{{ name }}-sg-cluster-master"
+    state: "{{ state }}"
+
+- name: Allow traffic to master from anywhere
+  tags: bootstrap
+  os_security_group_rule:
+    security_group: "{{ name }}-sg-cluster-master"
+    remote_ip_prefix: 0.0.0.0/0
+  when: state == "present"

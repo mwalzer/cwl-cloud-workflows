@@ -1,6 +1,63 @@
 ---
-- name: Warming up instances
+- name: Set type of playbook execution as fact
+  hosts: all
+  tasks:
+    - set_fact: 
+        ansiblepurpose: "{{ lookup('env','ansible_purpose') | default('cluster', true) }}"   # call ansible with -e "purpose=image other_variable=foo"
+        clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}"
+
+- name: Prepare network access
+  # will read ENV to get 
+  hosts: localhost
+  roles:
+    - openstack-network
+
+- name: Launch instances
+  hosts: localhost
+  pre_tasks:
+    - name: Set variables
+      set_fact:
+        name: "{{ lookup('env','NAME') | default('my-cluster', true) }}"
+        state: "{{ lookup('env','STATE') | default('present', true) }}"
+        node_count: "{{ lookup('env', 'NODE_COUNT') | default(3, true) }}"
+        master_count: "{{ lookup('env', 'MASTER_COUNT') | default(1, true) }}"
+        deploymentsfolder: "{{ lookup('env', 'DEPLOYMENTSFOLDER') | default('/root/app/deployments', true) }}"
+    - name: create .ssh on local host if it does not exisit
+      file:
+        path: ~/.ssh
+        state: directory
+    - name: prepare known_hosts on local system to avoid inaccessibilities
+      file:
+        path: ~/.ssh/known_hosts
+        state: touch
+        mode: 0600    
+  roles:
+    - { role: openstack-k8s-security-groups, when: state == 'present' }
+    - openstack-k8s-hosts
+    - { role: openstack-k8s-security-groups, when: state == 'absent' }
+
+- name: Get known_hosts from bastion
+  hosts: bastion
   gather_facts: no
+  tasks: 
+    - fetch:
+        src: "/home/ubuntu/.ssh/known_hosts"
+        dest: "~/.ssh/"
+
+- name: Makes sure each user uses the same known_hosts
+  hosts: localhost
+  gather_facts: no
+  tasks: 
+    - copy:
+        src: "~/.ssh/bastion/home/ubuntu/.ssh/known_hosts"
+        dest: "~/.ssh/known_hosts"
+      when: state == "present"
+    - shell: "ssh-keyscan -H {{ lookup('env','BASTION_IP') }} >> ~/.ssh/known_hosts"
+      when: state == "present"
+
+- name: Warming up instances
+  gather_facts: no  
+  become: yes
   hosts: all
   tasks:
   - name: Initial connection block
@@ -13,54 +70,90 @@
       - name: Try to install python 2, when ansible is not able to connect
         raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
 
-- name: Set type of playbook execution as fact
-  hosts: all
+- name: Test availability through bastion  # TODO this fails the first time on occasion WTF WHY?!
+  gather_facts: no
+  hosts: cluster_masters:cluster_nodes
+  become: yes
+  roles:
+    - provision-test
+
+- name: Set hostname 
+  hosts: cluster_masters:cluster_nodes
+  become: yes
+  roles:
+    - proper-hostname
+
+- name: Set hostnames properly
+  hosts: cluster_masters:cluster_nodes
+  become: yes
+  roles:
+     - stouts.hostname
+
+- name: Complete /etc/hosts with IP address of all hosts
+  hosts: cluster_masters:cluster_nodes
+  become: yes
   tasks:
-    - set_fact: 
-        ansible_purpose: "{{ purpose | default('cluster') }}"  # call ansible with -e "purpose=image other_variable=foo"
-        clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}"
-    
+    - lineinfile:
+        dest: /etc/hosts
+        regexp: '.*{{ item }}$'
+        line: "{{ hostvars[item]['ansible_host'] }} {{item}}"
+        state: present
+      when: hostvars[item]['ansible_host'] is defined
+      with_items: "{{ groups.cluster_masters + groups.cluster_nodes }}"
+
+- name: Print currently known cluster_masters hostvar info 
+  hosts: localhost
+  gather_facts: yes
+  vars:
+     clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
+  tasks:
+  - name: Display all variables/facts known for a host
+    debug:
+      var: hostvars
+      verbosity: 4
+
+
 - name: Set up docker 
-  hosts: cluster
+  hosts: cluster_masters:cluster_nodes
   become: yes
   vars: {docker_edition: 'ce', docker_package: "docker-{{ docker_edition }}", docker_package_state: present}
   roles:
     - geerlingguy.docker
 
 - name: Install java
-  hosts: cluster
+  hosts: cluster_masters:cluster_nodes
   become: yes
   roles:
     - geerlingguy.java
 
 - name: Install nextflow
   become: yes
-  hosts: master
+  hosts: cluster_masters
   tasks:
     - name: curl nextflow 
       shell: "curl -s https://get.nextflow.io | bash"
       register: nextflowcurloutput
 
 - name: Set hostnames properly
-  hosts: cluster
+  hosts: cluster_masters:cluster_nodes
   become: yes
   roles:
     - stouts.hostname
 
 - name: Complete /etc/hosts with IP address of all hosts
-  hosts: cluster
+  hosts: cluster_masters:cluster_nodes
   become: yes
   tasks:
     - lineinfile:
         dest: /etc/hosts
         regexp: '.*{{ item }}$'
-        line: "{{ hostvars[item].private_ipv4 }} {{item}}"
+        line: "{{ hostvars[item]['ansible_host'] }} {{item}}"
         state: present
-      when: hostvars[item].private_ipv4 is defined
+      when: hostvars[item]['ansible_host'] is defined
       with_items: "{{ groups.all }}"
 
 - name: Get GlusterFS necessities 
-  hosts: cluster
+  hosts: cluster_masters:cluster_nodes
   become: yes
   vars_files:
     - ports.yml
@@ -71,52 +164,68 @@
 # https://docs.gluster.org/en/latest/Quick-Start-Guide/Quickstart/#using-ansible-to-deploy-and-manage-glusterfs
 
 - name: Configure GlusterFS
-  hosts: cluster
+  hosts: cluster_masters:cluster_nodes
   become: yes
+  gather_facts: yes
   vars_files:
     - gluster_configuration.yml
   tasks:
     - include: configure_gluster.yml
-      when: ansible_purpose == "cluster"
+    #   when: ansiblepurpose == "cluster"
   ignore_errors: yes
-    
+
 - name: Set up SLURM masters
-  hosts: master
+  hosts: cluster_masters
   become: yes
+  gather_facts: yes
+  vars:
+     clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
   roles:
-  - role: 'indigo-dc.slurm'
+  # - role: 'indigo-dc.slurm'
+  - role: slurm
     vars:
       slurm_type_of_node: 'front'
-      slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}"
+      slurm_server_ip: "{{ hostvars[groups['cluster_masters'][0]]['ansible_host'] }}"
       clusternamenode: "{{ clustername }}-node"
-      slurm_wn_nodenames: "{{ groups['node'] | map('extract', hostvars, 'ansible_hostname') | select('search', clusternamenode) | list  }}"
-      slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}"
+      slurm_wn_nodenames: "{{ groups['cluster_nodes'] | map('extract', hostvars, 'ansible_hostname') | select('search', clusternamenode) | list  }}"
+      slurm_server_name: "{{  hostvars[groups['cluster_masters'][0]]['ansible_hostname']  }}"
       slurm_vnode_prefix: "{{ clustername }}-node-nf'"
-    when: ansible_purpose == "cluster"
+      ntp_config_server: [2.ubuntu.pool.ntp.org, 1.ubuntu.pool.ntp.org]
+    # when: ansiblepurpose == "cluster"
+
+
+- name: Print currently known cluster_masters hostvar info 
+  hosts: localhost
+  gather_facts: yes
+  vars:
+     clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
+  tasks:
+  - name: Display all variables/facts known for a host
+    debug:
+    with_items:
+        - "msg={{ groups['cluster_masters'][0] }}"
+        - "msg={{ hostvars[groups['cluster_masters'][0]] }}"
+        - "msg={{ hostvars[groups['cluster_masters'][0]]['ansible_host'] }}"
+  - name: Display all variables/facts known for a host
+    debug:
+      var: hostvars
+      verbosity: 4
 
 - name: Set up SLURM nodes
-  hosts: no-floating
+  hosts: cluster_nodes
   become: yes
+  gather_facts: yes
+  vars:
+     clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
   roles:
-  - role: 'indigo-dc.slurm'
+  # - role: 'indigo-dc.slurm'
+  - role: slurm
     vars:
       slurm_type_of_node: 'wn'
-      slurm_server_ip: "{{ hostvars[groups['master'][0]]['private_ipv4'] }}"
-      slurm_server_name: "{{  hostvars[groups['master'][0]]['ansible_hostname']  }}"
+      slurm_server_ip: "{{ hostvars[groups['cluster_masters'][0]]['ansible_host'] }}"
+      slurm_server_name: "{{  hostvars[groups['cluster_masters'][0]]['ansible_hostname']  }}"
       slurm_vnode_prefix: "{{ clustername }}-node-nf" 
-    when: ansible_purpose == "cluster"
+    # when: ansiblepurpose == "cluster"
 
 # https://wiki.fysik.dtu.dk/niflheim/Slurm_configuration
-
-# - name: Change authorized public keys
-#   gather_facts: no
-#   hosts: cluster
-
-#   tasks:
-#   - name: Make sure the user key is authorized on the instance
-#     authorized_key:
-#       user: "{{lookup('env','ANSIBLE_REMOTE_USER')}}"
-#       key: "{{lookup('env','ssh_key')}}"
-#       exclusive: no
-#       state: present
 ...

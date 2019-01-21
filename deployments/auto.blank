@@ -1,0 +1,12 @@
+[kube-master]
+
+[kube-node]
+
+[etcd]
+
+[k8s-cluster:children]
+kube-node
+kube-master
+
+[k8s-cluster:vars]
+ansible_ssh_common_args='-o ProxyCommand="ssh -i <bastion_key> -W %h:%p -q ubuntu@<bastion_ip>"'

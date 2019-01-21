@@ -17,8 +17,9 @@ terraform/aws/*
 #Test
 env.json
 
-#deployments
-*deployments/*
+deployments/*
+!deployments/auto.blank
+!deployments/os_inventory.py
 
 *.log
 volumes_mapping.json

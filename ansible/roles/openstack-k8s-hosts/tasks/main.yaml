@@ -1,0 +1,206 @@
+- name: Get cloud configuration
+  tags: bootstrap
+  os_client_config:
+
+- set_fact:
+    deploymentkeyisset: "{{ lookup('env','KEY') }}"
+    deploymentkeyname: "{{ name }}-key"
+
+- name: Create OpenStack keypair
+  os_keypair:
+      state: "{{ state }}"
+      name: "{{ deploymentkeyname }}"
+      public_key_file: "{{ lookup('env','KEYPATH') }}"
+  register: keypair
+  ignore_errors: True
+  when: deploymentkeyisset == ""
+  
+- set_fact:
+    deploymentkeyname: "{{ lookup('env','KEY') }}"
+  when: deploymentkeyisset != ""
+
+- name: Create deployment directory if inexistant
+  file:
+    path: "{{ deploymentsfolder }}/{{ name }}"
+    state: directory
+
+- name: Create/Delete K8s hosts - master
+  os_server:
+    security_groups:  "{{ name }}-sg-cluster-master,Gluster,galaxy"
+    state: "{{ state }}"
+    name: "{{ name }}-{{ item }}-k8s-master"
+    image: "{{ lookup('env','IMAGE') | default('Ubuntu16.04', true) }}"
+    boot_from_volume: "{{ lookup('env', 'MASTER_BOOT_FROM_VOLUME') | default('False', true) }}"
+    terminate_volume: "{{ lookup('env', 'MASTER_TERMINATE_VOLUME') | default('False', true) }}"
+    volume_size: "{{ lookup('env', 'MASTER_VOLUME_SIZE') | default('64', true) }}"
+    key_name: "{{ deploymentkeyname }}"
+    flavor: "{{ lookup('env','FLAVOR') | default('s1.nano', true) }}"
+    auto_ip: false
+    nics:
+      - net-name: "{{ lookup('env', 'NETWORK') | default(omit) }}"
+    #timeout: 180
+    userdata: |
+      #cloud-config
+      package_upgrade: true
+      hostname: "{{ name }}"
+      manage_etc_hosts: true
+      packages:
+        - python
+        - python-simplejson
+      wait: yes
+  register: "master_instances"
+  with_sequence: count={{ master_count }}
+
+- name: Create/Delete K8s hosts - nodes
+  os_server:
+    security_groups: "{{ name }}-sg-cluster-master,Gluster"  # TODO own security group
+    state: "{{ state }}"
+    name: "{{ name }}-{{ item }}-k8s-node"
+    image: "{{ lookup('env','IMAGE') | default('Ubuntu16.04', true) }}"
+    boot_from_volume: "{{ lookup('env', 'MASTER_BOOT_FROM_VOLUME') | default('False', true) }}"
+    terminate_volume: "{{ lookup('env', 'MASTER_TERMINATE_VOLUME') | default('False', true) }}"
+    volume_size: "{{ lookup('env', 'MASTER_VOLUME_SIZE') | default('64', true) }}"
+    key_name: "{{ deploymentkeyname }}"
+    flavor: "{{ lookup('env','FLAVOR') | default('s1.small', true) }}"
+    auto_ip: false
+    nics:
+      - net-name: "{{ lookup('env', 'NETWORK') | default(omit) }}"
+    #timeout: 180
+    userdata: |
+      #cloud-config
+      package_upgrade: true
+      hostname: "{{ name }}"  # this is wrong (and probably corrected later on)
+      manage_etc_hosts: true
+      packages:
+        - python
+        - python-simplejson
+      wait: yes
+  register: "node_instances"
+  with_sequence: count={{ node_count }}
+
+- set_fact:
+    inventory_dir: "{{ deploymentsfolder }}/{{ name }}"
+
+- name: Remove hostinfo from dynamic inventory
+  file:
+    path: "{{ deploymentsfolder }}/{{ name }}/{{ item.invocation.module_args.name }}.json"
+    state: "absent"
+  with_items: "{{ master_instances.results }}"
+  when: state == "absent"
+  # ignore_errors: True
+
+- name: Update inventory (bastion)
+  add_host:
+    name: "bastion"
+    ansible_host: "{{ lookup('env','BASTION_IP') }}"  # n.b. ansible_ssh_host is deprecated
+    ansible_ssh_user: ubuntu 
+    # ansible_ssh_common_args: "-i /home/user/.ssh/latitude"
+    ansible_ssh_private_key_file: "{{ lookup('env', 'BASTION_KEY') }}"  # "/home/user/.ssh/latitude"
+    groupname: bastions
+  when: state == "present"
+
+- name: Write the bastion host keys to known_hosts
+  connection: local
+  shell: "ssh-keyscan -H {{ lookup('env','BASTION_IP') }} >> ~/.ssh/known_hosts"
+  when: state == "present"
+
+- name: Update inventory with masters
+  add_host:
+    name: "{{ item.server.name }}"
+    ansible_hostname: "{{ item.server.name }}"
+    ansible_host: "{{ item.server.private_v4 }}"  # n.b. ansible_ssh_host is deprecated
+    ansible_ssh_private_key_file: "{{ lookup('env','PRIVATE_KEYPATH') }}" 
+    ansible_ssh_user: ubuntu 
+    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -i {{ lookup('env', 'BASTION_KEY') }} -W %h:%p -q ubuntu@{{ lookup('env','BASTION_IP') }}\""
+    groupname: cluster_masters
+  with_items: 
+    - "{{ master_instances.results }}"
+  when: state == "present"
+
+- name: Update inventory with nodes
+  add_host:
+    name: "{{ item.server.name }}"
+    ansible_hostname: "{{ item.server.name }}"
+    ansible_host: "{{ item.server.private_v4 }}"  # n.b. ansible_ssh_host is deprecated
+    ansible_ssh_private_key_file: "{{ lookup('env','PRIVATE_KEYPATH') }}" 
+    ansible_ssh_user: ubuntu 
+    ansible_ssh_common_args: "-o CheckHostIP no -o ProxyCommand=\"ssh -i {{ lookup('env', 'BASTION_KEY') }} -W %h:%p -q ubuntu@{{ lookup('env','BASTION_IP') }}\""
+    groupname: cluster_nodes
+  with_items: 
+    - "{{ node_instances.results }}"
+  when: state == "present"
+
+- name: Wait during nodes boot
+  wait_for:
+    host: "{{ hostvars[item]['ansible_host'] }}"
+    port: 22
+    search_regex: OpenSSH
+    delay: 10
+  with_items: 
+    - "{{ groups.cluster_masters }}"
+    - "{{ groups.cluster_nodes }}"
+  delegate_to: bastion # "{{ hostvars['bastion']['ansible_ssh_host'] }}"
+  when: state == "present"
+
+- name: Write hostinfo from dynamic inventory
+  shell: "{{ deploymentsfolder }}/os_inventory.py --host {{ item }} > {{ deploymentsfolder }}/{{ name }}/{{ item }}.json"
+  with_items: 
+    - "{{ groups.cluster_masters }}"
+    - "{{ groups.cluster_nodes }}"
+  when: state == "present"
+
+- name: Copy auto inventory.blank to inventory.ini
+  copy:
+    src: "{{ deploymentsfolder }}/auto.blank"
+    dest: "{{ deploymentsfolder }}/{{ name }}/auto.ini"
+
+- name: Write auto inventory.ini
+  lineinfile:
+    path: "{{ deploymentsfolder }}/{{ name }}/auto.ini"
+    regexp: '^\[kube-master\]'
+    line: "[kube-master]\n{{ item }} ansible_ssh_host={{ hostvars[item]['ansible_host'] }} ansible_user=ubuntu"
+  with_items: 
+    - "{{ groups.cluster_masters }}"
+  when: state == "present"
+
+- name: Write auto inventory.ini
+  lineinfile:
+    path: "{{ deploymentsfolder }}/{{ name }}/auto.ini"
+    regexp: '^\[kube-node\]'
+    line: "[kube-node]\n{{ item }} ansible_ssh_host={{ hostvars[item]['ansible_host'] }} ansible_user=ubuntu"
+  with_items: 
+    - "{{ groups.cluster_nodes }}"
+  when: state == "present"
+
+- name: Write auto inventory.ini
+  lineinfile:
+    path: "{{ deploymentsfolder }}/{{ name }}/auto.ini"
+    regexp: '^\[etcd\]'
+    line: "[etcd]\n{{ item }} ansible_ssh_host={{ hostvars[item]['ansible_host'] }} ansible_user=ubuntu"
+  with_items: 
+    - "{{ groups.cluster_nodes }}"
+  when: state == "present"
+
+- name: Write auto inventory.ini
+  replace:
+    path: "{{ deploymentsfolder }}/{{ name }}/auto.ini"
+    regexp: '<bastion_key>'
+    replace: "{{ lookup('env', 'BASTION_KEY') }}"
+  when: state == "present"
+
+- name: Write auto inventory.ini
+  replace:
+    path: "{{ deploymentsfolder }}/{{ name }}/auto.ini"
+    regexp: '<bastion_ip>'
+    replace: "{{ lookup('env','BASTION_IP') }}"
+  when: state == "present"
+
+- name: Write the new instance host keyss to known_hosts
+  connection: local
+  shell: "ssh-keyscan -H {{ hostvars[item]['ansible_host'] }} >> ~/.ssh/known_hosts"
+  with_items: 
+    - "{{ groups.cluster_masters }}"
+    - "{{ groups.cluster_nodes }}"
+  when: state == "present"
+  delegate_to: bastion 
+  
