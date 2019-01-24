@@ -1,4 +1,14 @@
 ---
+# dependencies
+- name: '[Ubuntu] Set Debian facts'
+  set_fact:
+    SLURM_VERSION: "{{ slurm_version }}"
+    PKG_FOLDER: "Debian"
+  when: ansible_os_family == "Debian"
+    
+- name: '[Ubuntu] install slurm dependencies'
+  apt: name=libmunge2,libpq5,openssl-blacklist,libmunge-dev,gcc,make,bzip2 update_cache=yes cache_valid_time=3600
+
 # install munge
 - name: Start Munge service
   service: name=munge state=started
@@ -11,22 +21,30 @@
 - include: munge.yaml
   when: munge_installed|failed
 
-- include: "{{ansible_os_family}}.yaml"
+# compile and install slurm
+- name: '[Ubuntu] Copy required packages'
+  copy: src={{PKG_FOLDER}}/{{item}} dest=/tmp/slurm.tar.bz2
+  with_items:
+    - slurm-{{slurm_version}}.tar.bz2
 
-- name: Set SLURM conf file path as fact RH
-  set_fact:
-    SLURM_CONF: "/etc/slurm/slurm.conf"
-    SLURM_SERVICE: "slurm"
-    SLURM_DAEMON: "slurm"
-  when: ansible_os_family == "RedHat"
+- name: '[Ubuntu] decompress SLURM package'
+  command: tar xjf slurm.tar.bz2 chdir=/tmp creates=/tmp/slurm-{{ slurm_version }}
 
-- name: Set SLURM conf file path as fact Debian
+- name: '[Ubuntu] configure SLURM'
+  command: ./configure chdir=/tmp/slurm-{{ slurm_version }} creates=/tmp/slurm-{{ slurm_version }}/config.log
+
+- name: '[Ubuntu] compile (make) SLURM'
+  command: make chdir=/tmp/slurm-{{ slurm_version }} creates=/tmp/slurm-{{ slurm_version }}/src/slurmctld
+
+- name: '[Ubuntu] install SLURM'
+  command: make install chdir=/tmp/slurm-{{ slurm_version }} creates=/usr/local/bin/srun
+
+- name: Set SLURM conf file path as fact
   set_fact:
     SLURM_CONF: "/usr/local/etc/slurm.conf"
     SLURM_SERVICE: "slurmctld"
     SLURM_DAEMON: "slurmd"
-  when: ansible_os_family == "Debian"
-
+  
 - name: create slurm group
   group: name="{{slurm_user}}" gid="{{slurm_uid}}" system=yes state=present
 

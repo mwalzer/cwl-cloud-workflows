@@ -24,11 +24,11 @@
     path: "{{ deploymentsfolder }}/{{ name }}"
     state: directory
 
-- name: Create/Delete K8s hosts - master
+- name: Create/Delete cluster hosts - master
   os_server:
     security_groups:  "{{ name }}-sg-cluster-master,Gluster,galaxy"
     state: "{{ state }}"
-    name: "{{ name }}-{{ item }}-k8s-master"
+    name: "{{ name }}-cluster-master-{{ item }}"
     image: "{{ lookup('env','IMAGE') | default('Ubuntu16.04', true) }}"
     boot_from_volume: "{{ lookup('env', 'MASTER_BOOT_FROM_VOLUME') | default('False', true) }}"
     terminate_volume: "{{ lookup('env', 'MASTER_TERMINATE_VOLUME') | default('False', true) }}"
@@ -51,11 +51,11 @@
   register: "master_instances"
   with_sequence: count={{ master_count }}
 
-- name: Create/Delete K8s hosts - nodes
+- name: Create/Delete cluster hosts - nodes
   os_server:
     security_groups: "{{ name }}-sg-cluster-master,Gluster"  # TODO own security group
     state: "{{ state }}"
-    name: "{{ name }}-{{ item }}-k8s-node"
+    name: "{{ name }}-cluster-node-{{ item }}"
     image: "{{ lookup('env','IMAGE') | default('Ubuntu16.04', true) }}"
     boot_from_volume: "{{ lookup('env', 'MASTER_BOOT_FROM_VOLUME') | default('False', true) }}"
     terminate_volume: "{{ lookup('env', 'MASTER_TERMINATE_VOLUME') | default('False', true) }}"

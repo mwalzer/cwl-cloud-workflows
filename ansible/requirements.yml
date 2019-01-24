@@ -15,9 +15,17 @@
   version: master
   src: geerlingguy.firewall
 
+- name: geerlingguy.ntp
+  version: master
+  src: geerlingguy.ntp
+
 - name: marvel-nccr.slurm
   version: master
   src: marvel-nccr.slurm
+
+- name: grycap.slurm
+  version: master
+  src: grycap.slurm
 
 - name: indigo-dc.slurm
   version: master
