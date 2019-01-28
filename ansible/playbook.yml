@@ -173,13 +173,13 @@
     #   when: ansiblepurpose == "cluster"
   ignore_errors: yes
 
-- name: Set NTP
-  hosts: cluster_masters:cluster_nodes
-  become: yes
-  roles:
-    - role: geerlingguy.ntp
-      vars: 
-        ntp_timezone: Europe/London
+# - name: Set NTP
+#   hosts: cluster_masters:cluster_nodes
+#   become: yes
+#   roles:
+#     - role: geerlingguy.ntp
+#       vars: 
+#         ntp_timezone: Europe/London
 
 - name: debug slurm conf
   hosts: localhost

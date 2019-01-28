@@ -2,5 +2,8 @@
   service: name=munge state=restarted
   when: not munge_key.stat.exists
 
-- name: reload slurm
+- name: reload slurm control
   shell: scontrol reconfigure || service {{SLURM_SERVICE}} restart
+
+- name: reload slurm daemon
+  shell: scontrol reconfigure || service {{SLURM_DAEMON}} restart
