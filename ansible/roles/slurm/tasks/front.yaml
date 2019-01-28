@@ -6,18 +6,35 @@
 - hostname:
     name: "{{ slurm_server_name }}"
 
-# start SLURM daemon
-- name: Start SLURM service
+- name: Copy the service files
   become: true
-  become_user: slurm
-  command: slurmctld
-    
+  copy:
+    src: slurmctld.service
+    dest: /etc/systemd/system/slurmctld.service
+    owner: slurm
+    group: slurm
+    mode: u+rw,g-wx,o-wx
+
+#systemctl enable slurmctld
+#systemctl start slurmctld
+
+# start SLURM daemon
+- name: Start SLURM controld daemon service
+  become: true
+  # become_user: slurm
+  # command: slurmctld
+  systemd:
+    name: slurmctld
+    state: started
+    enabled: yes
+
 - name: Ensure slurmd is not running in front node
   shell: pgrep slurmd && killall slurmd
   ignore_errors: yes
 
 - name: Wait Slurm daemon to be up
   wait_for:
+    host: "{{slurm_server_ip}}"
     port: 6817
 
 - name: Reconfigure SLURM

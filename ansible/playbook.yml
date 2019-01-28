@@ -112,18 +112,18 @@
       var: hostvars
       verbosity: 4
 
-- name: Set up docker 
-  hosts: cluster_masters:cluster_nodes
-  become: yes
-  vars: {docker_edition: 'ce', docker_package: "docker-{{ docker_edition }}", docker_package_state: present}
-  roles:
-    - geerlingguy.docker
+# - name: Set up docker 
+#   hosts: cluster_masters:cluster_nodes
+#   become: yes
+#   vars: {docker_edition: 'ce', docker_package: "docker-{{ docker_edition }}", docker_package_state: present}
+#   roles:
+#     - geerlingguy.docker
 
-- name: Install java
-  hosts: cluster_masters:cluster_nodes
-  become: yes
-  roles:
-    - geerlingguy.java
+# - name: Install java
+#   hosts: cluster_masters:cluster_nodes
+#   become: yes
+#   roles:
+#     - geerlingguy.java
 
 - name: Install nextflow
   become: yes
@@ -151,14 +151,14 @@
       when: hostvars[item]['ansible_host'] is defined
       with_items: "{{ groups.all }}"
 
-- name: Get GlusterFS necessities 
-  hosts: cluster_masters:cluster_nodes
-  become: yes
-  vars_files:
-    - ports.yml
-  roles:
-    - geerlingguy.glusterfs
-    - geerlingguy.firewall
+# - name: Get GlusterFS necessities 
+#   hosts: cluster_masters:cluster_nodes
+#   become: yes
+#   vars_files:
+#     - ports.yml
+#   roles:
+#     - geerlingguy.glusterfs
+#     - geerlingguy.firewall
   
 # https://docs.gluster.org/en/latest/Quick-Start-Guide/Quickstart/#using-ansible-to-deploy-and-manage-glusterfs
 
@@ -216,7 +216,7 @@
       clusternamenode: "{{ clustername }}-cluster-node"
       slurm_wn_nodenames: "{{ groups['cluster_nodes'] | map('extract', hostvars, 'ansible_hostname') | select('search', clusternamenode) | list  }}"
       slurm_vnode_prefix: "{{ clustername }}-cluster-node"
-      ntp_config_server: [2.ubuntu.pool.ntp.org, 1.ubuntu.pool.ntp.org]
+      # ntp_config_server: [2.ubuntu.pool.ntp.org, 1.ubuntu.pool.ntp.org]
     # when: ansiblepurpose == "cluster"
 
 - name: Set up SLURM nodes
