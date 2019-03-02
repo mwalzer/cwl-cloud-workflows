@@ -4,7 +4,7 @@
   tasks:
     - set_fact: 
         ansiblepurpose: "{{ lookup('env','ansible_purpose') | default('cluster', true) }}"   # call ansible with -e "purpose=image other_variable=foo"
-        clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}"
+        clustername: "{{ lookup('env','CLUSTER_NAME') | default('my-cluster', true) }}"
 
 - name: Prepare network access
   # will read ENV to get 
@@ -17,7 +17,7 @@
   pre_tasks:
     - name: Set variables
       set_fact:
-        name: "{{ lookup('env','NAME') | default('my-cluster', true) }}"
+        name: "{{ lookup('env','CLUSTER_NAME') | default('my-cluster', true) }}"
         state: "{{ lookup('env','STATE') | default('present', true) }}"
         node_count: "{{ lookup('env', 'NODE_COUNT') | default(3, true) }}"
         master_count: "{{ lookup('env', 'MASTER_COUNT') | default(1, true) }}"
@@ -105,7 +105,7 @@
   hosts: localhost
   gather_facts: yes
   vars:
-     clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
+     clustername: "{{ lookup('env','CLUSTER_NAME') | default('my-cluster', true) }}" 
   tasks:
   - name: Display all variables/facts known for a host
     debug:
@@ -125,13 +125,13 @@
 #   roles:
 #     - geerlingguy.java
 
-- name: Install nextflow
-  become: yes
-  hosts: cluster_masters
-  tasks:
-    - name: curl nextflow 
-      shell: "curl -s https://get.nextflow.io | bash"
-      register: nextflowcurloutput
+# - name: Install nextflow
+#  become: yes
+#  hosts: cluster_masters
+#  tasks:
+#    - name: curl nextflow 
+#      shell: "curl -s https://get.nextflow.io | bash"
+#      register: nextflowcurloutput
 
 - name: Set hostnames properly
   hosts: cluster_masters:cluster_nodes
@@ -166,11 +166,14 @@
   hosts: cluster_masters:cluster_nodes
   become: yes
   gather_facts: yes
+  vars:
+    state: "{{ lookup('env','STATE') | default('present', true) }}"
   vars_files:
     - gluster_configuration.yml
   tasks:
     - include: configure_gluster.yml
     #   when: ansiblepurpose == "cluster"
+      when: state == "present"
   ignore_errors: yes
 
 # - name: Set NTP
@@ -184,8 +187,9 @@
 - name: debug slurm conf
   hosts: localhost
   vars:
-    clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
+    clustername: "{{ lookup('env','CLUSTER_NAME') | default('my-cluster', true) }}" 
     clusternamenode: "{{ clustername }}-cluster-node"
+    state: "{{ lookup('env','STATE') | default('present', true) }}"
   tasks:
     - debug:
         msg: "{{ item }}"
@@ -194,6 +198,7 @@
         - "{{ groups['cluster_nodes'] | list }}"
         - "{{ groups['cluster_nodes'] | map('extract', hostvars, 'ansible_hostname') | select('search', clusternamenode)  }}"
         - "{{ groups['cluster_nodes'] | map('extract', hostvars, 'ansible_hostname') | select('search', clusternamenode) | list  }}"
+      when: state == "present"
 
 # clusternamenode and slurm_vnode_prefix must be the same and reflect the selection of nodes by hostname
 # In this setup, it is clustername "{{ name }}" connected by a dash with the node designation prefix "cluster-node"
@@ -204,7 +209,8 @@
   become: yes
   gather_facts: yes
   vars:
-     clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
+    state: "{{ lookup('env','STATE') | default('present', true) }}"
+    clustername: "{{ lookup('env','CLUSTER_NAME') | default('my-cluster', true) }}" 
   roles:
   # - role: 'grycap.slurm'
   # - role: 'indigo-dc.slurm'
@@ -218,13 +224,15 @@
       slurm_vnode_prefix: "{{ clustername }}-cluster-node"
       # ntp_config_server: [2.ubuntu.pool.ntp.org, 1.ubuntu.pool.ntp.org]
     # when: ansiblepurpose == "cluster"
+    when: state == "present"
 
 - name: Set up SLURM nodes
   hosts: cluster_nodes
   become: yes
   gather_facts: yes
   vars:
-     clustername: "{{ lookup('env','TF_VAR_cluster_name') | default('my-cluster', true) }}" 
+    state: "{{ lookup('env','STATE') | default('present', true) }}"
+    clustername: "{{ lookup('env','CLUSTER_NAME') | default('my-cluster', true) }}" 
   roles:
   # - role: 'grycap.slurm'
   # - role: 'indigo-dc.slurm'
@@ -236,6 +244,7 @@
       slurm_vnode_prefix: "{{ clustername }}-cluster-node-" 
       ntp_config_server: [2.ubuntu.pool.ntp.org, 1.ubuntu.pool.ntp.org]
     # when: ansiblepurpose == "cluster"
+    when: state == "present"
 
 # https://wiki.fysik.dtu.dk/niflheim/Slurm_configuration
 ...

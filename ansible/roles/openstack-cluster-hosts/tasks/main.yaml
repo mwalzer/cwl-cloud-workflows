@@ -26,7 +26,7 @@
 
 - name: Create/Delete cluster hosts - master
   os_server:
-    security_groups:  "{{ name }}-sg-cluster-master,Gluster,galaxy"
+    security_groups:  "{{ lookup('env','SECURITY_GROUP_CLUSTER') | default('sg-cluster', true) }},{{ lookup('env','SECURITY_GROUP_GLUSTER') | default('sg-gluster', true) }},galaxy"
     state: "{{ state }}"
     name: "{{ name }}-cluster-master-{{ item }}"
     image: "{{ lookup('env','IMAGE') | default('Ubuntu16.04', true) }}"
@@ -53,7 +53,7 @@
 
 - name: Create/Delete cluster hosts - nodes
   os_server:
-    security_groups: "{{ name }}-sg-cluster-master,Gluster"  # TODO own security group
+    security_groups:  "{{ lookup('env','SECURITY_GROUP_CLUSTER') | default('sg-cluster', true) }},{{ lookup('env','SECURITY_GROUP_GLUSTER') | default('sg-gluster', true) }},galaxy"  # TODO own sg for nodes?
     state: "{{ state }}"
     name: "{{ name }}-cluster-node-{{ item }}"
     image: "{{ lookup('env','IMAGE') | default('Ubuntu16.04', true) }}"
