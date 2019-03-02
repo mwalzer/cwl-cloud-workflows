@@ -36,41 +36,25 @@
     - openstack-cluster-hosts
     - { role: openstack-cluster-security-groups, when: state == 'absent' }
 
-- name: Get known_hosts from bastion
-  hosts: bastion
-  gather_facts: no
-  tasks: 
-    - fetch:
-        src: "/home/ubuntu/.ssh/known_hosts"
-        dest: "~/.ssh/"
-
-- name: Makes sure each user uses the same known_hosts
+- name: Write the new instance host keys to known_hosts
   hosts: localhost
   gather_facts: no
-  tasks: 
-    - copy:
-        src: "~/.ssh/bastion/home/ubuntu/.ssh/known_hosts"
-        dest: "~/.ssh/known_hosts"
-      when: state == "present"
-    - shell: "ssh-keyscan -H {{ lookup('env','BASTION_IP') }} >> ~/.ssh/known_hosts"
-      when: state == "present"
-
-- name: Warming up instances
-  gather_facts: no  
-  become: yes
-  hosts: all
   tasks:
-  - name: Initial connection block
-    block:
-      - name: Wait 20 seconds, but only start checking after 10 seconds
-        wait_for_connection:
-          delay: 10
-          timeout: 20
-    rescue:
-      - name: Try to install python 2, when ansible is not able to connect
-        raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+    - command: "ssh-keyscan  -H {{ hostvars[item]['ansible_host'] }}"
+      with_items: 
+        - "{{ groups.cluster_masters }}"
+        - "{{ groups.cluster_nodes }}"
+        - "{{ groups.bastions }}"
+      register: new_host_fingerprint
+      delegate_to: bastion
+      when: state == "present"
+    - lineinfile:
+        dest: ~/.ssh/known_hosts
+        line: "{{ item }}"
+      with_items: new_host_fingerprint.stdout_lines
+      when: state == "present"
 
-- name: Test availability through bastion  # TODO this fails the first time on occasion WTF WHY?! And does it really take that long? Longer than terraform?
+- name: Test availability through bastion and make sure python is available  # TODO this fails the first time on occasion WTF WHY?! And does it really take that long? Longer than terraform?
   gather_facts: no
   hosts: cluster_masters:cluster_nodes
   become: yes

@@ -93,15 +93,10 @@
   add_host:
     name: "bastion"
     ansible_host: "{{ lookup('env','BASTION_IP') }}"  # n.b. ansible_ssh_host is deprecated
-    ansible_ssh_user: ubuntu 
+    ansible_ssh_user: sshuser 
     # ansible_ssh_common_args: "-i /home/user/.ssh/latitude"
     ansible_ssh_private_key_file: "{{ lookup('env', 'BASTION_KEY') }}"  # "/home/user/.ssh/latitude"
     groupname: bastions
-  when: state == "present"
-
-- name: Write the bastion host keys to known_hosts
-  connection: local
-  shell: "ssh-keyscan -H {{ lookup('env','BASTION_IP') }} >> ~/.ssh/known_hosts"
   when: state == "present"
 
 - name: Update inventory with masters
@@ -111,7 +106,7 @@
     ansible_host: "{{ item.server.private_v4 }}"  # n.b. ansible_ssh_host is deprecated
     ansible_ssh_private_key_file: "{{ lookup('env','PRIVATE_KEYPATH') }}" 
     ansible_ssh_user: ubuntu 
-    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -i {{ lookup('env', 'BASTION_KEY') }} -W %h:%p -q ubuntu@{{ lookup('env','BASTION_IP') }}\""
+    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/user/.ssh/id_rsa -W %h:%p -q sshuser@193.62.55.220\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     groupname: cluster_masters
   with_items: 
     - "{{ master_instances.results }}"
@@ -124,22 +119,10 @@
     ansible_host: "{{ item.server.private_v4 }}"  # n.b. ansible_ssh_host is deprecated
     ansible_ssh_private_key_file: "{{ lookup('env','PRIVATE_KEYPATH') }}" 
     ansible_ssh_user: ubuntu 
-    ansible_ssh_common_args: "-o CheckHostIP no -o ProxyCommand=\"ssh -i {{ lookup('env', 'BASTION_KEY') }} -W %h:%p -q ubuntu@{{ lookup('env','BASTION_IP') }}\""
+    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/user/.ssh/id_rsa -W %h:%p -q sshuser@193.62.55.220\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     groupname: cluster_nodes
   with_items: 
     - "{{ node_instances.results }}"
-  when: state == "present"
-
-- name: Wait during nodes boot
-  wait_for:
-    host: "{{ hostvars[item]['ansible_host'] }}"
-    port: 22
-    search_regex: OpenSSH
-    delay: 10
-  with_items: 
-    - "{{ groups.cluster_masters }}"
-    - "{{ groups.cluster_nodes }}"
-  delegate_to: bastion # "{{ hostvars['bastion']['ansible_ssh_host'] }}"
   when: state == "present"
 
 - name: Write hostinfo from dynamic inventory
@@ -194,13 +177,3 @@
     regexp: '<bastion_ip>'
     replace: "{{ lookup('env','BASTION_IP') }}"
   when: state == "present"
-
-- name: Write the new instance host keyss to known_hosts
-  connection: local
-  shell: "ssh-keyscan -H {{ hostvars[item]['ansible_host'] }} >> ~/.ssh/known_hosts"
-  with_items: 
-    - "{{ groups.cluster_masters }}"
-    - "{{ groups.cluster_nodes }}"
-  when: state == "present"
-  delegate_to: bastion 
-  
