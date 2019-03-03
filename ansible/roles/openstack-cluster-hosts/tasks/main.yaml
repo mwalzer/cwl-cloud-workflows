@@ -93,9 +93,9 @@
   add_host:
     name: "bastion"
     ansible_host: "{{ lookup('env','BASTION_IP') }}"  # n.b. ansible_ssh_host is deprecated
-    ansible_ssh_user: sshuser 
-    # ansible_ssh_common_args: "-i /home/user/.ssh/latitude"
+    ansible_ssh_user: "{{ lookup('env','BASTION_USER') }}" 
     ansible_ssh_private_key_file: "{{ lookup('env', 'BASTION_KEY') }}"  # "/home/user/.ssh/latitude"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     groupname: bastions
   when: state == "present"
 
@@ -106,7 +106,7 @@
     ansible_host: "{{ item.server.private_v4 }}"  # n.b. ansible_ssh_host is deprecated
     ansible_ssh_private_key_file: "{{ lookup('env','PRIVATE_KEYPATH') }}" 
     ansible_ssh_user: ubuntu 
-    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/user/.ssh/id_rsa -W %h:%p -q sshuser@193.62.55.220\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i {{ lookup('env', 'BASTION_KEY') }} -W %h:%p -q {{ lookup('env','BASTION_USER') }}@{{ lookup('env','BASTION_IP') }}\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     groupname: cluster_masters
   with_items: 
     - "{{ master_instances.results }}"
@@ -119,7 +119,7 @@
     ansible_host: "{{ item.server.private_v4 }}"  # n.b. ansible_ssh_host is deprecated
     ansible_ssh_private_key_file: "{{ lookup('env','PRIVATE_KEYPATH') }}" 
     ansible_ssh_user: ubuntu 
-    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/user/.ssh/id_rsa -W %h:%p -q sshuser@193.62.55.220\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    ansible_ssh_common_args: "-o ProxyCommand=\"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i {{ lookup('env', 'BASTION_KEY') }} -W %h:%p -q {{ lookup('env','BASTION_USER') }}@{{ lookup('env','BASTION_IP') }}\" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     groupname: cluster_nodes
   with_items: 
     - "{{ node_instances.results }}"
